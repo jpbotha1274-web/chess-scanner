@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Stockfish Live Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Symbols+2&display=swap">
+<style>
+/* Layout: camera view and controls on the left, digital board and scoresheet on the right; one column on phones */
+:root{
+  --bg:#eef1ee; --panel:#ffffff; --ink:#17201b; --muted:#5a6a61; --line:#d4dcd6; --soft:#e3e9e4;
+  --accent:#a8761c; --accent-ink:#ffffff;
+  --sq-light:#ebe6d0; --sq-dark:#4e7a59; --sq-last:rgba(214,170,58,.55);
+  --ok:#2f8a52; --warn:#b98a17; --bad:#c23b3b;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  --pieces:"Noto Sans Symbols 2","Segoe UI Symbol","DejaVu Sans",serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111613; --panel:#19201c; --ink:#e5ebe7; --muted:#93a399; --line:#2b3530; --soft:#222b26;
+  --accent:#d9a443; --accent-ink:#1a1408; --sq-light:#d9d3bb; --sq-dark:#3f6849; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111613; --panel:#19201c; --ink:#e5ebe7; --muted:#93a399; --line:#2b3530; --soft:#222b26;
+  --accent:#d9a443; --accent-ink:#1a1408; --sq-light:#d9d3bb; --sq-dark:#3f6849; color-scheme:dark}
+html,body{background:var(--bg);color:var(--ink)}
+body{margin:0;font-family:var(--body);font-size:15px;line-height:1.45}
+.app{max-width:1080px;margin:0 auto;padding-block:20px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header{margin-bottom:18px}
+h1{font-family:var(--display);font-weight:700;font-size:2rem;margin:0;line-height:1;text-wrap:balance}
+header p{margin:4px 0 0;color:var(--muted);font-size:.9rem;max-width:62ch}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,420px);gap:24px;align-items:start}
+@media (max-width:900px){.layout{grid-template-columns:minmax(0,1fr)}}
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.label{font:600 .78rem var(--display);letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:0}
+.explain{margin:0;color:var(--muted);font-size:.92rem;max-width:62ch}
+.steps{margin:0;padding-left:1.2em;color:var(--muted);font-size:.92rem;display:flex;flex-direction:column;gap:4px}
+.steps b{color:var(--ink);font-weight:600}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);font:600 .92rem var(--body);padding:9px 14px;border-radius:8px;cursor:pointer;text-align:center}
+.btn:hover{background:var(--soft)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.big{font:700 1.15rem var(--display);letter-spacing:.06em;text-transform:uppercase;padding:14px 18px;width:100%}
+.btn:disabled,.btn.disabled{opacity:.45;cursor:not-allowed;pointer-events:none}
+.btn:focus-visible,.seg button:focus-visible,select:focus-visible,label.btn:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;color:var(--ink);font:500 .9rem var(--body);padding:7px 12px;cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--panel)}
+#video{display:block;width:100%;height:auto}
+#overlay{position:absolute;inset:0;width:100%;height:100%;touch-action:manipulation}
+.live{display:flex;align-items:center;gap:8px;font:600 .85rem var(--display);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.live i{width:9px;height:9px;border-radius:50%;background:var(--muted)}
+.live.on i{background:var(--ok)}.live.busy i{background:var(--warn)}
+.photo-wrap{position:relative;border-radius:10px;overflow:hidden;background:var(--soft);min-height:180px;display:flex;align-items:center;justify-content:center}
+#photo{display:block;width:100%;height:auto;touch-action:manipulation}
+.photo-empty{color:var(--muted);font-size:.9rem;padding:40px 20px;text-align:center}
+.prompt{position:absolute;left:10px;right:10px;top:10px;background:rgba(17,22,19,.82);color:#f2f5f3;border-radius:8px;padding:8px 12px;font-weight:600;font-size:.95rem;pointer-events:none}
+.detect{display:flex;flex-direction:column;gap:10px}
+.detect-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.detect-head strong{font:700 1.6rem var(--display)}
+.pill{font:600 .75rem var(--display);letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:999px;color:#fff}
+.pill.ok{background:var(--ok)}.pill.warn{background:var(--warn)}.pill.bad{background:var(--bad)}
+.heat-row{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+.heat{display:grid;grid-template-columns:repeat(8,14px);grid-template-rows:repeat(8,14px);gap:1px;flex:none;border:1px solid var(--line)}
+.heat span{background:var(--accent)}
+select{font:500 .92rem var(--body);padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);max-width:100%}
+
+.board-box{position:relative;width:100%;aspect-ratio:1/1;max-width:100%;container-type:inline-size;border-radius:6px;overflow:hidden;box-shadow:0 0 0 1px rgba(0,0,0,.18)}
+.board{display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);width:100%;height:100%}
+.sq{position:relative;display:flex;align-items:center;justify-content:center;background:var(--sq-light)}
+.sq.d{background:var(--sq-dark)}
+.sq.last::before{content:"";position:absolute;inset:0;background:var(--sq-last)}
+.pc{position:relative;z-index:1;font-family:var(--pieces);font-size:10.4cqw;line-height:1;user-select:none}
+.pc.w{color:#fbfaf5;-webkit-text-stroke:.09em #1b211d;paint-order:stroke fill}
+.pc.b{color:#161b18}
+.coord{position:absolute;z-index:1;font:600 2.3cqw var(--mono);opacity:.85}
+.coord.r{top:3%;left:5%}.coord.f{bottom:2%;right:6%}
+.sq:not(.d) .coord{color:var(--sq-dark)}.sq.d .coord{color:var(--sq-light)}
+#arrows{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3}
+.suggest{border-radius:10px;padding:12px 14px;background:var(--soft);display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.suggest strong{font:700 1.6rem var(--display)}
+.suggest span{color:var(--muted);font:400 .85rem var(--mono)}
+.status{font-weight:500;display:flex;gap:8px;align-items:center}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.pulse{animation:none}}
+.moves{display:grid;grid-template-columns:2.4em 1fr 1fr;gap:2px 6px;font:400 .9rem var(--mono);max-height:220px;overflow-y:auto;font-variant-numeric:tabular-nums}
+.moves .n{color:var(--muted);text-align:right;padding:3px 0}
+.mv{padding:3px 6px;display:flex;gap:6px;align-items:center}
+.mv .star{color:var(--accent)}
+.empty{color:var(--muted);font-size:.9rem;margin:0;grid-column:1/-1}
+.tally{font:600 1rem var(--display);letter-spacing:.03em}
+.toggle{display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:500}
+.toggle input{width:18px;height:18px;accent-color:var(--accent)}
+</style>
+</head><body>
+<div class="app">
+  <header>
+    <h1>Stockfish Live Scanner</h1>
+    <p>Point your camera at a real board. It spots each move once the hand leaves the frame, and Stockfish suggests your reply.</p>
+  </header>
+
+  <main class="layout">
+    <div class="col">
+      <section class="card">
+        <div class="row" style="justify-content:space-between">
+          <p class="label">Camera</p>
+          <span class="live" id="liveState"><i></i><span id="liveText">Off</span></span>
+        </div>
+        <div class="photo-wrap" id="photoWrap">
+          <video id="video" playsinline muted hidden></video>
+          <canvas id="overlay" hidden></canvas>
+          <div class="photo-empty" id="photoEmpty">Set up the starting position and start the camera.</div>
+          <div class="prompt" id="prompt" hidden></div>
+        </div>
+        <button class="btn primary big" id="camBtn">Start camera</button>
+        <div class="row" id="cornerActions" hidden>
+          <button class="btn" id="retapBtn">Tap corners again</button>
+          <button class="btn primary" id="confirmBtn">Grid looks right, start game</button>
+        </div>
+        <div class="row" id="playActions" hidden>
+          <button class="btn" id="scanBtn">Scan now</button>
+          <button class="btn" id="realignBtn">Re-align corners</button>
+          <button class="btn" id="pauseBtn">Pause</button>
+        </div>
+      </section>
+
+      <section class="card" id="detectCard" hidden>
+        <p class="label">Detected move</p>
+        <div class="detect" id="detect"></div>
+      </section>
+
+      <section class="card" id="howCard">
+        <p class="label">How to set up</p>
+        <ol class="steps">
+          <li><b>Fix the phone</b> straight above the board on a stand. It must not move during the game.</li>
+          <li><b>Light the board evenly.</b> Avoid hard shadows and glare.</li>
+          <li><b>Start the camera</b> with all pieces on their starting squares, then tap the four outer corners when asked.</li>
+          <li><b>Just play.</b> After each move, keep hands clear for about a second and the move is read automatically.</li>
+        </ol>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="card">
+        <div class="row" style="justify-content:space-between">
+          <p class="label">Position</p>
+          <div class="seg" id="colorSeg" aria-label="You play">
+            <button data-c="w">I'm White</button><button data-c="b">I'm Black</button>
+          </div>
+        </div>
+        <div class="board-box">
+          <div class="board" id="board" aria-label="Current position"></div>
+          <svg id="arrows" viewBox="0 0 8 8" aria-hidden="true">
+            <defs><marker id="head" viewBox="0 0 10 10" refX="3" refY="5" markerWidth="2.6" markerHeight="2.6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="rgba(214,150,30,.92)"/></marker></defs>
+            <line id="arrowLine" stroke="rgba(214,150,30,.85)" stroke-width=".2" stroke-linecap="round" marker-end="url(#head)" visibility="hidden"/>
+          </svg>
+        </div>
+        <div class="status" id="status" role="status"></div>
+        <div class="suggest" id="suggest" hidden></div>
+        <label class="toggle"><input type="checkbox" id="hideToggle"> Hide suggestions</label>
+      </section>
+
+      <section class="card">
+        <div class="row" style="justify-content:space-between">
+          <p class="label">Moves</p>
+          <span class="tally" id="tally"></span>
+        </div>
+        <div class="moves" id="moves"></div>
+        <div class="row">
+          <button class="btn" id="undoBtn">Undo last move</button>
+          <button class="btn" id="pgnBtn">Copy PGN</button>
+          <button class="btn" id="newBtn">New game</button>
+        </div>
+        <p class="explain">★ marks moves where you played Stockfish's suggestion.</p>
+      </section>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<script>
+const SF_URL='https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js';
+const $=id=>document.getElementById(id);
+const GLYPH={k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟'};
+const CORNER_NAMES=['a1','h1','h8','a8'];
+const store={get(k,d){try{const v=localStorage.getItem('scanner:'+k);return v===null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem('scanner:'+k,JSON.stringify(v))}catch(e){}}};
+
+const S={
+  phase:'start',            // start | corners | confirm | play
+  userColor:store.get('color','w'),
+  hide:store.get('hide',false),
+  img:null, imgData:null,    // current photo (canvas-sized)
+  corners:[], H:null, realign:false,
+  ref:null, refStack:[],     // square samples of last accepted position
+  pending:null,              // {samples, ranked, diffs}
+  lastDetect:null,
+  meta:[], last:null, analysis:null,
+  engineState:'loading', gen:0
+};
+let game=new Chess();
+
+/* ---------- Engine ---------- */
+class Engine{
+  constructor(){
+    this.listeners=[];this.q=Promise.resolve();
+    const blob=new Blob([`importScripts('${SF_URL}');`],{type:'application/javascript'});
+    this.w=new Worker(URL.createObjectURL(blob));
+    this.w.onmessage=e=>{String(e.data).split('\n').forEach(l=>{l=l.trim();if(l)this.listeners.slice().forEach(f=>f(l))})};
+    this.w.onerror=()=>{S.engineState='error';render()};
+  }
+  send(c){this.w.postMessage(c)}
+  off(f){this.listeners=this.listeners.filter(x=>x!==f)}
+  wait(pred,ms){return new Promise((res,rej)=>{const t=setTimeout(()=>{this.off(f);rej(new Error('timeout'))},ms);const f=l=>{if(pred(l)){this.off(f);clearTimeout(t);res(l)}};this.listeners.push(f)})}
+  async init(){this.send('uci');await this.wait(l=>l==='uciok',25000);this.send('isready');await this.wait(l=>l==='readyok',25000)}
+  run(fen,depth){
+    const job=()=>new Promise(res=>{
+      const out={fen,cp:null,mate:null,pv:[],best:null};
+      const f=l=>{
+        if(l.startsWith('info ')&&l.includes(' pv ')){
+          const m=l.match(/score (cp|mate) (-?\d+)/);
+          if(m){if(m[1]==='cp'){out.cp=+m[2];out.mate=null}else{out.mate=+m[2];out.cp=null}}
+          out.pv=l.split(' pv ')[1].trim().split(/\s+/);
+        }else if(l.startsWith('bestmove')){this.off(f);const b=l.split(/\s+/)[1];out.best=(b&&b!=='(none)')?b:null;res(out)}
+      };
+      this.listeners.push(f);
+      this.send('setoption name Skill Level value 20');
+      this.send('position fen '+fen);
+      this.send('go depth '+depth);
+    });
+    this.q=this.q.then(job,job);return this.q;
+  }
+}
+let engine=null;
+
+/* ---------- Geometry ---------- */
+// Homography from board coords (u along files 0..8, v along ranks 0..8) to photo pixels
+function solve(A,b){
+  const n=b.length;
+  for(let i=0;i<n;i++){
+    let p=i;for(let r=i+1;r<n;r++)if(Math.abs(A[r][i])>Math.abs(A[p][i]))p=r;
+    [A[i],A[p]]=[A[p],A[i]];[b[i],b[p]]=[b[p],b[i]];
+    if(Math.abs(A[i][i])<1e-12)return null;
+    for(let r=i+1;r<n;r++){const k=A[r][i]/A[i][i];for(let c=i;c<n;c++)A[r][c]-=k*A[i][c];b[r]-=k*b[i]}
+  }
+  const x=new Array(n);
+  for(let i=n-1;i>=0;i--){let s=b[i];for(let c=i+1;c<n;c++)s-=A[i][c]*x[c];x[i]=s/A[i][i]}
+  return x;
+}
+function homography(pts){
+  const src=[[0,0],[8,0],[8,8],[0,8]];
+  const A=[],b=[];
+  for(let i=0;i<4;i++){
+    const [u,v]=src[i],[x,y]=pts[i];
+    A.push([u,v,1,0,0,0,-u*x,-v*x]);b.push(x);
+    A.push([0,0,0,u,v,1,-u*y,-v*y]);b.push(y);
+  }
+  return solve(A,b);
+}
+function project(H,u,v){const w=H[6]*u+H[7]*v+1;return [(H[0]*u+H[1]*v+H[2])/w,(H[3]*u+H[4]*v+H[5])/w]}
+
+/* ---------- Square sampling and diffing ---------- */
+const N=7; // samples per side inside each square
+function sampleSquares(imgData,H){
+  const {width:W,height:Hh,data}=imgData;
+  const out={};let total=0,count=0;
+  for(let f=0;f<8;f++)for(let r=0;r<8;r++){
+    const arr=new Float32Array(N*N*3);let k=0;
+    for(let i=0;i<N;i++)for(let j=0;j<N;j++){
+      const u=f+.18+.64*i/(N-1),v=r+.18+.64*j/(N-1);
+      let [x,y]=project(H,u,v);x=Math.min(W-1,Math.max(0,Math.round(x)));y=Math.min(Hh-1,Math.max(0,Math.round(y)));
+      const p=(y*W+x)*4;arr[k++]=data[p];arr[k++]=data[p+1];arr[k++]=data[p+2];
+      total+=data[p]+data[p+1]+data[p+2];count+=3;
+    }
+    out['abcdefgh'[f]+(r+1)]=arr;
+  }
+  out._mean=total/count;
+  return out;
+}
+function diffSquares(a,b){
+  const ka=128/(a._mean||128),kb=128/(b._mean||128);
+  const d={};
+  for(const sq in a){if(sq[0]==='_')continue;
+    const x=a[sq],y=b[sq];let s=0;
+    for(let i=0;i<x.length;i++)s+=Math.abs(x[i]*ka-y[i]*kb);
+    d[sq]=s/x.length;
+  }
+  return d;
+}
+function affected(m){
+  const sq=[m.from,m.to];
+  if(m.flags.includes('k')){const r=m.color==='w'?'1':'8';sq.push('h'+r,'f'+r)}
+  if(m.flags.includes('q')){const r=m.color==='w'?'1':'8';sq.push('a'+r,'d'+r)}
+  if(m.flags.includes('e')){sq.push(m.to[0]+m.from[1])}
+  return sq;
+}
+function rankMoves(diffs){
+  const vals=Object.values(diffs).sort((a,b)=>a-b);
+  const median=vals[32],max=vals[63];
+  const t=median+.35*(max-median);
+  const moves=game.moves({verbose:true}).filter(m=>!m.promotion||m.promotion==='q');
+  const ranked=moves.map(m=>({m,score:affected(m).reduce((s,q)=>s+(diffs[q]-t),0)})).sort((a,b)=>b.score-a.score);
+  return {ranked,median,max};
+}
+
+/* ---------- Live camera ---------- */
+const video=$('video'),overlay=$('overlay'),octx=overlay.getContext('2d');
+const work=document.createElement('canvas'),wctx=work.getContext('2d',{willReadFrequently:true});
+const L={stream:null,timer:null,prev:null,stableSince:0,checked:false,paused:false,wake:null,lastMotion:0};
+async function startCamera(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){alertMsg('This browser has no camera access here. Open the page over https in Safari or Chrome.');return}
+  try{
+    L.stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}},audio:false});
+  }catch(err){alertMsg('Camera permission was refused. Allow camera access for this site and try again.');return}
+  video.srcObject=L.stream;await video.play();
+  const W=640,scale=W/video.videoWidth;
+  work.width=W;work.height=Math.round(video.videoHeight*scale);
+  overlay.width=work.width;overlay.height=work.height;
+  S.corners=[];S.H=null;S.phase='corners';
+  try{if(navigator.wakeLock)L.wake=await navigator.wakeLock.request('screen')}catch(e){}
+  L.timer=setInterval(tick,250);
+  render();
+}
+function grab(){wctx.drawImage(video,0,0,work.width,work.height);return wctx.getImageData(0,0,work.width,work.height)}
+function maxOf(d){let m=0;for(const k in d)if(d[k]>m)m=d[k];return m}
+function tick(){
+  drawOverlay();
+  if(S.phase!=='play'||!S.H||L.paused||S.realign||game.game_over())return;
+  const cur=sampleSquares(grab(),S.H);
+  const now=performance.now();
+  if(L.prev){
+    const motion=maxOf(diffSquares(L.prev,cur));
+    if(motion>14){L.stableSince=now;L.checked=false;L.lastMotion=now}
+  }
+  L.prev=cur;
+  setLive();
+  if(!L.checked&&now-L.stableSince>1100){
+    L.checked=true;
+    const d=diffSquares(S.ref,cur);
+    const top=Object.values(d).sort((a,b)=>b-a);
+    if((top[0]+top[1])/2>18&&!S.pending)detect(cur);
+  }
+}
+function setLive(){
+  const el=$('liveState'),t=$('liveText');
+  el.classList.remove('on','busy');
+  if(!L.stream){t.textContent='Off';return}
+  if(L.paused){t.textContent='Paused';return}
+  if(S.phase!=='play'){t.textContent='Camera on';el.classList.add('on');return}
+  if(performance.now()-L.lastMotion<1100){t.textContent='Movement';el.classList.add('busy')}
+  else{t.textContent='Watching';el.classList.add('on')}
+}
+function drawOverlay(){
+  octx.clearRect(0,0,overlay.width,overlay.height);
+  const lw=Math.max(1.5,overlay.width/400);
+  if(S.H&&!S.realign&&S.phase!=='corners'){
+    octx.strokeStyle='rgba(217,164,67,.85)';octx.lineWidth=lw;
+    const ln=(a,b)=>{octx.beginPath();octx.moveTo(a[0],a[1]);octx.lineTo(b[0],b[1]);octx.stroke()};
+    for(let i=0;i<=8;i++){ln(project(S.H,i,0),project(S.H,i,8));ln(project(S.H,0,i),project(S.H,8,i))}
+    if(S.phase==='confirm'){
+      octx.fillStyle='rgba(255,255,255,.95)';octx.font=`600 ${Math.round(overlay.width/40)}px "JetBrains Mono",monospace`;octx.textAlign='center';octx.textBaseline='middle';
+      ['a1','h1','h8','a8','e4','d5'].forEach(sq=>{const f='abcdefgh'.indexOf(sq[0]),r=+sq[1]-1;const [x,y]=project(S.H,f+.5,r+.5);octx.lineWidth=lw*2;octx.strokeStyle='rgba(0,0,0,.7)';octx.strokeText(sq,x,y);octx.fillText(sq,x,y)});
+    }
+    if(S.last&&S.phase==='play'){
+      [S.last.from,S.last.to].forEach(sq=>{const f='abcdefgh'.indexOf(sq[0]),r=+sq[1]-1;const p=[project(S.H,f,r),project(S.H,f+1,r),project(S.H,f+1,r+1),project(S.H,f,r+1)];octx.beginPath();octx.moveTo(...p[0]);p.slice(1).forEach(q=>octx.lineTo(...q));octx.closePath();octx.fillStyle='rgba(217,164,67,.28)';octx.fill()});
+    }
+  }
+  S.corners.forEach((p,i)=>{
+    octx.beginPath();octx.arc(p[0],p[1],lw*5,0,Math.PI*2);octx.fillStyle='rgba(217,164,67,.95)';octx.fill();
+    octx.fillStyle='#111';octx.font=`700 ${Math.round(lw*5.5)}px "JetBrains Mono",monospace`;octx.textAlign='center';octx.textBaseline='middle';octx.fillText(CORNER_NAMES[i][0],p[0],p[1]);
+  });
+}
+overlay.addEventListener('click',e=>{
+  const tapping=S.phase==='corners'||(S.phase==='play'&&S.realign);
+  if(!tapping||S.corners.length>=4)return;
+  const r=overlay.getBoundingClientRect();
+  S.corners.push([(e.clientX-r.left)*overlay.width/r.width,(e.clientY-r.top)*overlay.height/r.height]);
+  if(S.corners.length===4){
+    S.H=homography(S.corners);
+    if(S.phase==='corners')S.phase='confirm';
+    else{S.realign=false;S.ref=sampleSquares(grab(),S.H);L.prev=null;L.checked=true}
+  }
+  render();
+});
+function alertMsg(t){S.lastDetect={error:t};render()}
+function detect(samples){
+  const diffs=diffSquares(S.ref,samples);
+  const {ranked,median,max}=rankMoves(diffs);
+  const top=ranked[0],second=ranked[1];
+  let conf='bad';
+  if(top&&top.score>0){const margin=second?(top.score-second.score)/Math.max(top.score,1e-6):1;conf=margin>.35?'ok':margin>.12?'warn':'bad'}
+  const shifted=median>28;
+  S.lastDetect={diffs,ranked:ranked.slice(0,4),conf,shifted};
+  if(conf==='ok'&&!shifted)applyMove(top.m,samples);
+  else S.pending={samples};
+  render();
+}
+function detectFromPhoto(){detect(sampleSquares(grab(),S.H))}
+
+/* ---------- Game ---------- */
+function analyze(){
+  if(S.engineState!=='ready'||game.game_over())return;
+  const fen=game.fen(),gen=S.gen;
+  engine.run(fen,14).then(r=>{if(gen!==S.gen||game.fen()!==fen)return;S.analysis=r;render()});
+}
+function applyMove(m,samples){
+  const fenBefore=game.fen();
+  const before=S.analysis&&S.analysis.fen===fenBefore?S.analysis:null;
+  const mv=game.move({from:m.from,to:m.to,promotion:m.promotion||'q'});
+  if(!mv)return;
+  const meta={san:mv.san,color:mv.color,uci:mv.from+mv.to};
+  if(mv.color===S.userColor&&before&&before.best)meta.match=before.best.slice(0,4)===meta.uci;
+  S.meta.push(meta);S.refStack.push(S.ref);S.ref=samples;S.last={from:mv.from,to:mv.to};
+  S.pending=null;S.analysis=null;S.gen++;L.checked=true;
+  if(S.lastDetect)S.lastDetect.applied=mv.san;
+  render();analyze();
+}
+function undo(){
+  if(!S.meta.length)return;
+  game.undo();S.meta.pop();S.ref=S.refStack.pop();L.checked=false;L.stableSince=performance.now();S.gen++;S.analysis=null;S.pending=null;S.lastDetect=null;
+  const h=game.history({verbose:true}),l=h[h.length-1];S.last=l?{from:l.from,to:l.to}:null;
+  render();analyze();
+}
+function newGame(){
+  S.gen++;game=new Chess();
+  Object.assign(S,{phase:L.stream?(S.H?'confirm':'corners'):'start',ref:null,refStack:[],pending:null,lastDetect:null,meta:[],last:null,analysis:null,realign:false});
+  render();
+}
+function evalText(a){
+  const side=a.fen.split(' ')[1];
+  if(a.mate!==null){const m=side==='w'?a.mate:-a.mate;return (m>0?'+':'-')+'M'+Math.abs(m)}
+  const v=(side==='w'?a.cp:-a.cp)/100;return (v>0?'+':'')+v.toFixed(2);
+}
+function uciToSan(fen,u){const c=new Chess(fen);const m=c.move({from:u.slice(0,2),to:u.slice(2,4),promotion:u[4]||'q'});return m?m.san:u}
+
+/* ---------- Render ---------- */
+function renderBoard(){
+  const files='abcdefgh',o=S.userColor;
+  const ranks=o==='w'?[8,7,6,5,4,3,2,1]:[1,2,3,4,5,6,7,8];
+  const fs=o==='w'?files.split(''):files.split('').reverse();
+  let html='';
+  ranks.forEach((r,ri)=>fs.forEach((f,fi)=>{
+    const sq=f+r,p=game.get(sq),dark=(files.indexOf(f)+r)%2===1;
+    const last=S.last&&(S.last.from===sq||S.last.to===sq);
+    html+=`<div class="sq${dark?' d':''}${last?' last':''}">`+(fi===0?`<span class="coord r">${r}</span>`:'')+(ri===7?`<span class="coord f">${f}</span>`:'')+(p?`<span class="pc ${p.color}">${GLYPH[p.type]}︎</span>`:'')+'</div>';
+  }));
+  $('board').innerHTML=html;
+  const line=$('arrowLine'),a=S.analysis;
+  if(!S.hide&&a&&a.fen===game.fen()&&a.best&&game.turn()===S.userColor){
+    const xy=sq=>{const f='abcdefgh'.indexOf(sq[0]),r=+sq[1];return o==='w'?[f+.5,8-r+.5]:[7-f+.5,r-1+.5]};
+    const [x1,y1]=xy(a.best.slice(0,2)),[x2,y2]=xy(a.best.slice(2,4));
+    const dx=x2-x1,dy=y2-y1,len=Math.hypot(dx,dy),k=(len-.42)/len;
+    line.setAttribute('x1',x1);line.setAttribute('y1',y1);line.setAttribute('x2',x1+dx*k);line.setAttribute('y2',y1+dy*k);line.setAttribute('visibility','visible');
+  }else line.setAttribute('visibility','hidden');
+}
+function renderDetect(){
+  const card=$('detectCard'),d=S.lastDetect;
+  card.hidden=!d;
+  if(!d)return;
+  if(d.error){$('detect').innerHTML=`<p class="explain">${d.error}</p>`;return}
+  let html='';
+  const best=d.ranked[0];
+  if(d.applied){
+    html+=`<div class="detect-head"><strong>${d.applied}</strong><span class="pill ok">Clear match</span></div><p class="explain">Added to the game. If that's wrong, tap Undo last move. The scanner will read the board again.</p>`;
+  }else{
+    const label=d.shifted?'Board shifted':d.conf==='warn'?'Unsure':'No clear match';
+    const cls=d.shifted||d.conf==='bad'?'bad':'warn';
+    html+=`<div class="detect-head"><strong>${best?best.m.san+'?':'?'}</strong><span class="pill ${cls}">${label}</span></div>`;
+    html+=d.shifted?`<p class="explain">Most of the board looks different from the last photo. If the phone or the light moved, tap Re-align corners. Otherwise pick the move below.</p>`:`<p class="explain">Pick the move that was played, or tap Scan now once hands are clear.</p>`;
+    html+='<div class="row">'+d.ranked.slice(0,3).map((r,i)=>`<button class="btn${i===0?' primary':''}" data-pick="${i}">${r.m.san}</button>`).join('')+'</div>';
+  }
+  if(!d.applied){
+    const opts=game.moves().map(s=>`<option value="${s}">${s}</option>`).join('');
+    html+=`<div class="row"><select id="manualSel" aria-label="Choose the move manually"><option value="">Other move…</option>${opts}</select></div>`;
+  }
+  // heat map of what changed
+  const o=S.userColor,vals=Object.values(d.diffs),mx=Math.max(...vals,1);
+  const ranks=o==='w'?[8,7,6,5,4,3,2,1]:[1,2,3,4,5,6,7,8],fs=o==='w'?'abcdefgh'.split(''):'hgfedcba'.split('');
+  let heat='';ranks.forEach(r=>fs.forEach(f=>{heat+=`<span style="opacity:${(Math.pow(d.diffs[f+r]/mx,1.5)*.95+.05).toFixed(2)}" title="${f+r}"></span>`}));
+  html+=`<div class="heat-row"><div class="heat" aria-hidden="true">${heat}</div><p class="explain" style="font-size:.82rem">Brighter squares changed more since the last accepted move. A clean move lights up two squares, four for castling.</p></div>`;
+  $('detect').innerHTML=html;
+  $('detect').querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>applyMove(d.ranked[+b.dataset.pick].m,S.pending.samples));
+  const sel=$('manualSel');
+  if(sel)sel.onchange=()=>{const san=sel.value;if(!san)return;const m=game.moves({verbose:true}).find(x=>x.san===san);if(m)applyMove(m,S.pending?S.pending.samples:S.ref)};
+}
+function render(){
+  // camera card
+  const on=!!L.stream;
+  video.hidden=!on;overlay.hidden=!on;$('photoEmpty').hidden=on;
+  drawOverlay();setLive();
+  const prompt=$('prompt');
+  const tapping=S.phase==='corners'||(S.phase==='play'&&S.realign);
+  prompt.hidden=!tapping;
+  if(tapping)prompt.textContent=`Tap the outer corner of ${CORNER_NAMES[S.corners.length]} (${S.corners.length+1} of 4)`;
+  $('cornerActions').hidden=!(S.phase==='confirm'||S.phase==='corners');
+  $('confirmBtn').disabled=S.phase!=='confirm';
+  $('playActions').hidden=S.phase!=='play';
+  $('pauseBtn').textContent=L.paused?'Resume':'Pause';
+  $('camBtn').hidden=on;
+  $('howCard').hidden=S.phase==='play';
+
+  [...$('colorSeg').children].forEach(b=>b.setAttribute('aria-pressed',b.dataset.c===S.userColor));
+  $('hideToggle').checked=S.hide;
+  renderBoard();renderDetect();
+
+  // status + suggestion
+  let st,busy=false;
+  if(S.engineState==='loading'){st='Loading Stockfish…';busy=true}
+  else if(S.engineState==='error')st="Stockfish didn't load. Check your connection and reload the page.";
+  else if(game.in_checkmate())st=`Checkmate. ${game.turn()==='w'?'Black':'White'} wins.`;
+  else if(game.in_draw())st='The game is drawn.';
+  else if(S.phase!=='play')st='Waiting for camera setup.';
+  else if(game.turn()===S.userColor){st='Your move.';if(!S.analysis){st='Stockfish is thinking…';busy=true}}
+  else st="Opponent's move. Watching the board.";
+  $('status').innerHTML=(busy?'<span class="pulse"></span>':'')+st;
+  const sug=$('suggest'),a=S.analysis;
+  const showSug=!S.hide&&S.phase==='play'&&a&&a.best&&a.fen===game.fen()&&game.turn()===S.userColor;
+  sug.hidden=!showSug;
+  if(showSug)sug.innerHTML=`<strong>${uciToSan(a.fen,a.best)}</strong><span>Stockfish suggests · ${evalText(a)}</span>`;
+
+  // moves
+  const box=$('moves');
+  if(!S.meta.length)box.innerHTML='<p class="empty">No moves yet.</p>';
+  else{let h='';for(let i=0;i<S.meta.length;i+=2){h+=`<span class="n">${i/2+1}.</span>${cell(i)}${S.meta[i+1]?cell(i+1):'<span></span>'}`}box.innerHTML=h;box.scrollTop=box.scrollHeight}
+  function cell(i){const m=S.meta[i];return `<span class="mv">${m.san}${m.match?'<span class="star" title="Matched Stockfish">★</span>':''}</span>`}
+  const mine=S.meta.filter(m=>m.color===S.userColor);
+  $('tally').textContent=mine.length?`${mine.filter(m=>m.match).length} of ${mine.length} matched`:'';
+  $('undoBtn').disabled=!S.meta.length;
+}
+
+/* ---------- Events ---------- */
+$('camBtn').onclick=startCamera;
+$('retapBtn').onclick=()=>{S.corners=[];S.H=null;S.phase='corners';render()};
+$('confirmBtn').onclick=()=>{
+  if(!S.H)return;
+  S.ref=sampleSquares(grab(),S.H);S.phase='play';L.prev=null;L.checked=true;L.stableSince=performance.now();render();analyze();
+};
+$('realignBtn').onclick=()=>{S.realign=true;S.corners=[];render()};
+$('scanBtn').onclick=()=>{S.pending=null;detectFromPhoto()};
+$('pauseBtn').onclick=()=>{L.paused=!L.paused;L.checked=true;render()};
+document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='visible'&&L.stream&&navigator.wakeLock){try{L.wake=await navigator.wakeLock.request('screen')}catch(e){}}});
+$('colorSeg').onclick=e=>{const b=e.target.closest('button');if(!b)return;S.userColor=b.dataset.c;store.set('color',S.userColor);render()};
+$('hideToggle').onchange=e=>{S.hide=e.target.checked;store.set('hide',S.hide);render()};
+$('undoBtn').onclick=undo;
+$('newBtn').onclick=newGame;
+$('pgnBtn').onclick=e=>{
+  const btn=e.currentTarget,pgn=game.pgn()||'(no moves)';
+  const done=()=>{btn.textContent='Copied';setTimeout(()=>btn.textContent='Copy PGN',1400)};
+  const fallback=()=>{const ta=document.createElement('textarea');ta.value=pgn;document.body.appendChild(ta);ta.select();try{document.execCommand('copy');done()}catch(_){}ta.remove()};
+  try{navigator.clipboard.writeText(pgn).then(done,fallback)}catch(_){fallback()}
+};
+
+render();
+try{engine=new Engine();engine.init().then(()=>{S.engineState='ready';render();analyze()}).catch(()=>{S.engineState='error';render()})}catch(e){S.engineState='error';render()}
+</script>
+</body></html>
